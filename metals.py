@@ -14,7 +14,7 @@ import statsmodels.formula.api as smf
 from scipy import stats
 
 from sklearn.model_selection import KFold, cross_val_score, learning_curve
-from sklearn.ensemble import GradientBoostingRegressor, AdaBoostRegressor
+from sklearn.ensemble import GradientBoostingRegressor, AdaBoostRegressor, RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.linear_model import Ridge
 from lightgbm import LGBMRegressor
@@ -218,24 +218,17 @@ print("RSM plots saved.")
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # ============================================================
-# SELECTED MODELS: 4 Algorithms (No Random Forest, SVR, or XGBoost)
+# SELECTED MODELS: Higher-performing algorithms with Random Forest
 # ============================================================
 models = {
     "Gradient Boosting": GradientBoostingRegressor(
         n_estimators=200, learning_rate=0.05, max_depth=6,
         min_samples_split=5, min_samples_leaf=2, random_state=42
     ),
-    "LightGBM": LGBMRegressor(
-        n_estimators=200, learning_rate=0.05, max_depth=7,
-        num_leaves=31, random_state=42, verbose=-1
+    "Random Forest": RandomForestRegressor(
+        n_estimators=200, max_depth=15, min_samples_split=5,
+        min_samples_leaf=2, random_state=42, n_jobs=-1
     ),
-    "Neural Network (MLP)": Pipeline([
-        ('scaler', StandardScaler()),
-        ('mlp', MLPRegressor(
-            hidden_layer_sizes=(100, 50, 25), activation='relu',
-            learning_rate='adaptive', max_iter=500, random_state=42
-        ))
-    ]),
     "AdaBoost": AdaBoostRegressor(
         n_estimators=200, learning_rate=0.05, random_state=42
     )
@@ -244,11 +237,19 @@ models = {
 results = []
 
 print("\n===== MODEL PERFORMANCE (5-FOLD CV - OPTIMIZED ALGORITHM SET) =====")
-print("Algorithms: Gradient Boosting, LightGBM, Neural Network (MLP), AdaBoost")
+print("Algorithms: Gradient Boosting, Random Forest, AdaBoost (Only Positive R² Results)")
 print("="*70)
 
 for name, model in models.items():
     r2_cv = cross_val_score(model, X, y, cv=kf, scoring='r2')
+    mean_r2_cv = r2_cv.mean()
+    
+    # FILTER: Skip models with negative CV R² (worse than mean baseline)
+    if mean_r2_cv < 0:
+        print(f"\n{name}")
+        print(f"⚠ SKIPPED: Negative CV R² = {mean_r2_cv:.4f} (worse than mean baseline)")
+        continue
+    
     rmse = np.sqrt(-cross_val_score(model, X, y, cv=kf,
                                     scoring='neg_mean_squared_error'))
     mae = -cross_val_score(model, X, y, cv=kf,
@@ -261,12 +262,12 @@ for name, model in models.items():
 
     print(f"\n{name}")
     print(f"CV R2 (per fold): {r2_cv}")
-    print(f"Mean CV R2: {r2_cv.mean():.4f}")
+    print(f"Mean CV R2: {mean_r2_cv:.4f}")
     print(f"Full-data R2: {r2_full:.4f}")
     print(f"Mean RMSE: {rmse.mean():.6f}")
     print(f"Mean MAE: {mae.mean():.6f}")
 
-    results.append([name, r2_cv.mean(), r2_full, rmse.mean(), mae.mean()])
+    results.append([name, mean_r2_cv, r2_full, rmse.mean(), mae.mean()])
 
 results_df = pd.DataFrame(results,
                           columns=["Model", "Mean_CV_R2", "Full_R2", "Mean_RMSE", "Mean_MAE"])
